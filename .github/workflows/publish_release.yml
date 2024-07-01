@@ -1,15 +1,17 @@
-name: Lint
-on: [push, pull_request]
+name: Publish release
+on:
+  release:
+    types: [published]
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  lint:
-    name: Lint
+  publish:
+    name: Publish
     runs-on: ubuntu-latest
 
     strategy:
-      fail-fast: false
       matrix:
         node-version: [lts/*]
 
@@ -23,12 +25,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run lint
-        run: npx gulp lint
+      - name: Build the `pdfjs-dist` library
+        run: npx gulp dist
 
-      - name: Run lint-chromium
-        run: npx gulp lint-chromium
+      - name: Publish the `pdfjs-dist` library to NPM
+        run: npm publish ./build/dist --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
