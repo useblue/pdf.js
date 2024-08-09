@@ -51,7 +51,27 @@
       "type": "boolean",
       "default": true
     },
-    "enableML": {
+    "enableAltText": {
+      "type": "boolean",
+      "default": false
+    },
+    "enableGuessAltText": {
+      "type": "boolean",
+      "default": true
+    },
+    "enableAltTextModelDownload": {
+      "type": "boolean",
+      "default": true
+    },
+    "enableNewAltTextWhenAddingImage": {
+      "type": "boolean",
+      "default": true
+    },
+    "altTextLearnMoreUrl": {
+      "type": "string",
+      "default": ""
+    },
+    "enableUpdatedAddImage": {
       "type": "boolean",
       "default": false
     },
@@ -85,10 +105,6 @@
     "highlightEditorColors": {
       "type": "string",
       "default": "yellow=#FFFF98,green=#53FFBC,blue=#80EBFF,pink=#FFCBE6,red=#FF4F5F"
-    },
-    "enableStampEditor": {
-      "type": "boolean",
-      "default": true
     },
     "disableRange": {
       "title": "Disable range requests",

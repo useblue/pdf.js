@@ -54,11 +54,7 @@ class AnnotationEditor {
 
   #savedDimensions = null;
 
-  #boundFocusin = this.focusin.bind(this);
-
-  #boundFocusout = this.focusout.bind(this);
-
-  #editToolbar = null;
+  #focusAC = null;
 
   #focusedResizerName = "";
 
@@ -79,6 +75,8 @@ class AnnotationEditor {
   #prevDragY = 0;
 
   #telemetryTimeouts = null;
+
+  _editToolbar = null;
 
   _initialOptions = Object.create(null);
 
@@ -210,6 +208,9 @@ class AnnotationEditor {
         "pdfjs-editor-alt-text-button-label",
         "pdfjs-editor-alt-text-edit-button-label",
         "pdfjs-editor-alt-text-decorative-tooltip",
+        "pdfjs-editor-new-alt-text-added-button-label",
+        "pdfjs-editor-new-alt-text-missing-button-label",
+        "pdfjs-editor-new-alt-text-to-review-button-label",
         "pdfjs-editor-resizer-label-topLeft",
         "pdfjs-editor-resizer-label-topMiddle",
         "pdfjs-editor-resizer-label-topRight",
@@ -223,6 +224,18 @@ class AnnotationEditor {
         l10n.get(str.replaceAll(/([A-Z])/g, c => `-${c.toLowerCase()}`)),
       ])
     );
+
+    // The string isn't in the above list because the string has a parameter
+    // (i.e. the guessed text) and we must pass it to the l10n function to get
+    // the correct translation.
+    AnnotationEditor._l10nPromise.set(
+      "pdfjs-editor-new-alt-text-generated-alt-text-with-disclaimer",
+      l10n.get.bind(
+        l10n,
+        "pdfjs-editor-new-alt-text-generated-alt-text-with-disclaimer"
+      )
+    );
+
     if (options?.strings) {
       for (const str of options.strings) {
         AnnotationEditor._l10nPromise.set(str, l10n.get(str));
@@ -743,16 +756,17 @@ class AnnotationEditor {
 
     this.#altText?.toggle(false);
 
-    const boundResizerPointermove = this.#resizerPointermove.bind(this, name);
     const savedDraggable = this._isDraggable;
     this._isDraggable = false;
-    const signal = this._uiManager._signal;
-    const pointerMoveOptions = { passive: true, capture: true, signal };
+
+    const ac = new AbortController();
+    const signal = this._uiManager.combinedSignal(ac);
+
     this.parent.togglePointerEvents(false);
     window.addEventListener(
       "pointermove",
-      boundResizerPointermove,
-      pointerMoveOptions
+      this.#resizerPointermove.bind(this, name),
+      { passive: true, capture: true, signal }
     );
     window.addEventListener("contextmenu", noContextMenu, { signal });
     const savedX = this.x;
@@ -765,17 +779,10 @@ class AnnotationEditor {
       window.getComputedStyle(event.target).cursor;
 
     const pointerUpCallback = () => {
+      ac.abort();
       this.parent.togglePointerEvents(true);
       this.#altText?.toggle(true);
       this._isDraggable = savedDraggable;
-      window.removeEventListener("pointerup", pointerUpCallback);
-      window.removeEventListener("blur", pointerUpCallback);
-      window.removeEventListener(
-        "pointermove",
-        boundResizerPointermove,
-        pointerMoveOptions
-      );
-      window.removeEventListener("contextmenu", noContextMenu);
       this.parent.div.style.cursor = savedParentCursor;
       this.div.style.cursor = savedCursor;
 
@@ -952,6 +959,9 @@ class AnnotationEditor {
     this.fixAndSetPosition();
   }
 
+  /**
+   * Called when the alt text dialog is closed.
+   */
   altTextFinish() {
     this.#altText?.finish();
   }
@@ -961,24 +971,24 @@ class AnnotationEditor {
    * @returns {Promise<EditorToolbar|null>}
    */
   async addEditToolbar() {
-    if (this.#editToolbar || this.#isInEditMode) {
-      return this.#editToolbar;
+    if (this._editToolbar || this.#isInEditMode) {
+      return this._editToolbar;
     }
-    this.#editToolbar = new EditorToolbar(this);
-    this.div.append(this.#editToolbar.render());
+    this._editToolbar = new EditorToolbar(this);
+    this.div.append(this._editToolbar.render());
     if (this.#altText) {
-      this.#editToolbar.addAltTextButton(await this.#altText.render());
+      this._editToolbar.addAltTextButton(await this.#altText.render());
     }
 
-    return this.#editToolbar;
+    return this._editToolbar;
   }
 
   removeEditToolbar() {
-    if (!this.#editToolbar) {
+    if (!this._editToolbar) {
       return;
     }
-    this.#editToolbar.remove();
-    this.#editToolbar = null;
+    this._editToolbar.remove();
+    this._editToolbar = null;
 
     // We destroy the alt text but we don't null it because we want to be able
     // to restore it in case the user undoes the deletion.
@@ -1016,8 +1026,24 @@ class AnnotationEditor {
     this.#altText.data = data;
   }
 
+  get guessedAltText() {
+    return this.#altText?.guessedText;
+  }
+
+  async setGuessedAltText(text) {
+    await this.#altText?.setGuessedText(text);
+  }
+
+  serializeAltText(isForCopying) {
+    return this.#altText?.serialize(isForCopying);
+  }
+
   hasAltText() {
-    return !this.#altText?.isEmpty();
+    return !!this.#altText && !this.#altText.isEmpty();
+  }
+
+  hasAltTextData() {
+    return this.#altText?.hasData() ?? false;
   }
 
   /**
@@ -1035,10 +1061,7 @@ class AnnotationEditor {
     }
 
     this.setInForeground();
-
-    const signal = this._uiManager._signal;
-    this.div.addEventListener("focusin", this.#boundFocusin, { signal });
-    this.div.addEventListener("focusout", this.#boundFocusout, { signal });
+    this.#addFocusListeners();
 
     const [parentWidth, parentHeight] = this.parentDimensions;
     if (this.parentRotation % 180 !== 0) {
@@ -1098,14 +1121,14 @@ class AnnotationEditor {
     const isSelected = this._uiManager.isSelected(this);
     this._uiManager.setUpDragSession();
 
-    let pointerMoveOptions, pointerMoveCallback;
-    const signal = this._uiManager._signal;
+    const ac = new AbortController();
+    const signal = this._uiManager.combinedSignal(ac);
+
     if (isSelected) {
       this.div.classList.add("moving");
-      pointerMoveOptions = { passive: true, capture: true, signal };
       this.#prevDragX = event.clientX;
       this.#prevDragY = event.clientY;
-      pointerMoveCallback = e => {
+      const pointerMoveCallback = e => {
         const { clientX: x, clientY: y } = e;
         const [tx, ty] = this.screenToPageTranslation(
           x - this.#prevDragX,
@@ -1115,23 +1138,17 @@ class AnnotationEditor {
         this.#prevDragY = y;
         this._uiManager.dragSelectedEditors(tx, ty);
       };
-      window.addEventListener(
-        "pointermove",
-        pointerMoveCallback,
-        pointerMoveOptions
-      );
+      window.addEventListener("pointermove", pointerMoveCallback, {
+        passive: true,
+        capture: true,
+        signal,
+      });
     }
 
     const pointerUpCallback = () => {
-      window.removeEventListener("pointerup", pointerUpCallback);
-      window.removeEventListener("blur", pointerUpCallback);
+      ac.abort();
       if (isSelected) {
         this.div.classList.remove("moving");
-        window.removeEventListener(
-          "pointermove",
-          pointerMoveCallback,
-          pointerMoveOptions
-        );
       }
 
       this.#hasBeenClicked = false;
@@ -1289,15 +1306,24 @@ class AnnotationEditor {
     return this.div && !this.isAttachedToDOM;
   }
 
+  #addFocusListeners() {
+    if (this.#focusAC || !this.div) {
+      return;
+    }
+    this.#focusAC = new AbortController();
+    const signal = this._uiManager.combinedSignal(this.#focusAC);
+
+    this.div.addEventListener("focusin", this.focusin.bind(this), { signal });
+    this.div.addEventListener("focusout", this.focusout.bind(this), { signal });
+  }
+
   /**
    * Rebuild the editor in case it has been removed on undo.
    *
    * To implement in subclasses.
    */
   rebuild() {
-    const signal = this._uiManager._signal;
-    this.div?.addEventListener("focusin", this.#boundFocusin, { signal });
-    this.div?.addEventListener("focusout", this.#boundFocusout, { signal });
+    this.#addFocusListeners();
   }
 
   /**
@@ -1367,8 +1393,8 @@ class AnnotationEditor {
    * It's used on ctrl+backspace action.
    */
   remove() {
-    this.div.removeEventListener("focusin", this.#boundFocusin);
-    this.div.removeEventListener("focusout", this.#boundFocusout);
+    this.#focusAC?.abort();
+    this.#focusAC = null;
 
     if (!this.isEmpty()) {
       // The editor is removed but it can be back at some point thanks to
@@ -1558,18 +1584,19 @@ class AnnotationEditor {
   select() {
     this.makeResizable();
     this.div?.classList.add("selectedEditor");
-    if (!this.#editToolbar) {
+    if (!this._editToolbar) {
       this.addEditToolbar().then(() => {
         if (this.div?.classList.contains("selectedEditor")) {
           // The editor can have been unselected while we were waiting for the
           // edit toolbar to be created, hence we want to be sure that this
           // editor is still selected.
-          this.#editToolbar?.show();
+          this._editToolbar?.show();
         }
       });
       return;
     }
-    this.#editToolbar?.show();
+    this._editToolbar?.show();
+    this.#altText?.toggleAltTextBadge(false);
   }
 
   /**
@@ -1585,7 +1612,8 @@ class AnnotationEditor {
         preventScroll: true,
       });
     }
-    this.#editToolbar?.hide();
+    this._editToolbar?.hide();
+    this.#altText?.toggleAltTextBadge(true);
   }
 
   /**

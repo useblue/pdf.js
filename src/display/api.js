@@ -294,7 +294,7 @@ function getDocument(src = {}) {
   const enableHWA = src.enableHWA === true;
 
   // Parameters whose default values depend on other parameters.
-  const length = rangeTransport ? rangeTransport.length : src.length ?? NaN;
+  const length = rangeTransport ? rangeTransport.length : (src.length ?? NaN);
   const useSystemFonts =
     typeof src.useSystemFonts === "boolean"
       ? src.useSystemFonts
@@ -1227,6 +1227,7 @@ class PDFDocumentProxy {
  * @property {Map<string, HTMLCanvasElement>} [annotationCanvasMap] - Map some
  *   annotation ids with canvases used to render them.
  * @property {PrintAnnotationStorage} [printAnnotationStorage]
+ * @property {boolean} [isEditing] - Render the page in editing mode.
  */
 
 /**
@@ -1248,6 +1249,7 @@ class PDFDocumentProxy {
  *      from the {@link AnnotationStorage}-instance; useful e.g. for printing.
  *   The default value is `AnnotationMode.ENABLE`.
  * @property {PrintAnnotationStorage} [printAnnotationStorage]
+ * @property {boolean} [isEditing] - Render the page in editing mode.
  */
 
 /**
@@ -1420,13 +1422,15 @@ class PDFPageProxy {
     annotationCanvasMap = null,
     pageColors = null,
     printAnnotationStorage = null,
+    isEditing = false,
   }) {
     this._stats?.time("Overall");
 
     const intentArgs = this._transport.getRenderingIntent(
       intent,
       annotationMode,
-      printAnnotationStorage
+      printAnnotationStorage,
+      isEditing
     );
     const { renderingIntent, cacheKey } = intentArgs;
     // If there was a pending destroy, cancel it so no cleanup happens during
@@ -1560,6 +1564,7 @@ class PDFPageProxy {
     intent = "display",
     annotationMode = AnnotationMode.ENABLE,
     printAnnotationStorage = null,
+    isEditing = false,
   } = {}) {
     if (typeof PDFJSDev !== "undefined" && !PDFJSDev.test("GENERIC")) {
       throw new Error("Not implemented: getOperatorList");
@@ -1576,6 +1581,7 @@ class PDFPageProxy {
       intent,
       annotationMode,
       printAnnotationStorage,
+      isEditing,
       /* isOpList = */ true
     );
     let intentState = this._intentStates.get(intentArgs.cacheKey);
@@ -1812,6 +1818,7 @@ class PDFPageProxy {
     renderingIntent,
     cacheKey,
     annotationStorageSerializable,
+    modifiedIds,
   }) {
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING")) {
       assert(
@@ -1828,6 +1835,7 @@ class PDFPageProxy {
         intent: renderingIntent,
         cacheKey,
         annotationStorage: map,
+        modifiedIds,
       },
       transfer
     );
@@ -1990,47 +1998,6 @@ class LoopbackPort {
  *   the constants from {@link VerbosityLevel} should be used.
  */
 
-const PDFWorkerUtil = {
-  isWorkerDisabled: false,
-  fakeWorkerId: 0,
-};
-if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
-  if (isNodeJS) {
-    // Workers aren't supported in Node.js, force-disabling them there.
-    PDFWorkerUtil.isWorkerDisabled = true;
-
-    GlobalWorkerOptions.workerSrc ||= PDFJSDev.test("LIB")
-      ? "../pdf.worker.js"
-      : "./pdf.worker.mjs";
-  }
-
-  // Check if URLs have the same origin. For non-HTTP based URLs, returns false.
-  PDFWorkerUtil.isSameOrigin = function (baseUrl, otherUrl) {
-    let base;
-    try {
-      base = new URL(baseUrl);
-      if (!base.origin || base.origin === "null") {
-        return false; // non-HTTP url
-      }
-    } catch {
-      return false;
-    }
-
-    const other = new URL(otherUrl, base);
-    return base.origin === other.origin;
-  };
-
-  PDFWorkerUtil.createCDNWrapper = function (url) {
-    // We will rely on blob URL's property to specify origin.
-    // We want this function to fail in case if createObjectURL or Blob do not
-    // exist or fail for some reason -- our Worker creation will fail anyway.
-    const wrapper = `await import("${url}");`;
-    return URL.createObjectURL(
-      new Blob([wrapper], { type: "text/javascript" })
-    );
-  };
-}
-
 /**
  * PDF.js web worker abstraction that controls the instantiation of PDF
  * documents. Message handlers are used to pass information from the main
@@ -2040,7 +2007,51 @@ if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
  * @param {PDFWorkerParameters} params - The worker initialization parameters.
  */
 class PDFWorker {
+  static #fakeWorkerId = 0;
+
+  static #isWorkerDisabled = false;
+
   static #workerPorts;
+
+  static {
+    if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
+      if (isNodeJS) {
+        // Workers aren't supported in Node.js, force-disabling them there.
+        this.#isWorkerDisabled = true;
+
+        GlobalWorkerOptions.workerSrc ||= PDFJSDev.test("LIB")
+          ? "../pdf.worker.js"
+          : "./pdf.worker.mjs";
+      }
+
+      // Check if URLs have the same origin. For non-HTTP based URLs, returns
+      // false.
+      this._isSameOrigin = (baseUrl, otherUrl) => {
+        let base;
+        try {
+          base = new URL(baseUrl);
+          if (!base.origin || base.origin === "null") {
+            return false; // non-HTTP url
+          }
+        } catch {
+          return false;
+        }
+        const other = new URL(otherUrl, base);
+        return base.origin === other.origin;
+      };
+
+      this._createCDNWrapper = url => {
+        // We will rely on blob URL's property to specify origin.
+        // We want this function to fail in case if createObjectURL or Blob do
+        // not exist or fail for some reason -- our Worker creation will fail
+        // anyway.
+        const wrapper = `await import("${url}");`;
+        return URL.createObjectURL(
+          new Blob([wrapper], { type: "text/javascript" })
+        );
+      };
+    }
+  }
 
   constructor({
     name = null,
@@ -2130,7 +2141,7 @@ class PDFWorker {
     // Right now, the requirement is, that an Uint8Array is still an
     // Uint8Array as it arrives on the worker.
     if (
-      PDFWorkerUtil.isWorkerDisabled ||
+      PDFWorker.#isWorkerDisabled ||
       PDFWorker.#mainThreadWorkerMessageHandler
     ) {
       this._setupFakeWorker();
@@ -2144,9 +2155,9 @@ class PDFWorker {
       if (
         typeof PDFJSDev !== "undefined" &&
         PDFJSDev.test("GENERIC") &&
-        !PDFWorkerUtil.isSameOrigin(window.location.href, workerSrc)
+        !PDFWorker._isSameOrigin(window.location.href, workerSrc)
       ) {
-        workerSrc = PDFWorkerUtil.createCDNWrapper(
+        workerSrc = PDFWorker._createCDNWrapper(
           new URL(workerSrc, window.location).href
         );
       }
@@ -2226,9 +2237,9 @@ class PDFWorker {
   }
 
   _setupFakeWorker() {
-    if (!PDFWorkerUtil.isWorkerDisabled) {
+    if (!PDFWorker.#isWorkerDisabled) {
       warn("Setting up fake worker.");
-      PDFWorkerUtil.isWorkerDisabled = true;
+      PDFWorker.#isWorkerDisabled = true;
     }
 
     PDFWorker._setupFakeWorkerGlobal
@@ -2241,7 +2252,7 @@ class PDFWorker {
         this._port = port;
 
         // All fake workers use the same port, making id unique.
-        const id = `fake${PDFWorkerUtil.fakeWorkerId++}`;
+        const id = `fake${PDFWorker.#fakeWorkerId++}`;
 
         // If the main thread is our worker, setup the handling for the
         // messages -- the main thread sends to it self.
@@ -2420,6 +2431,7 @@ class WorkerTransport {
     intent,
     annotationMode = AnnotationMode.ENABLE,
     printAnnotationStorage = null,
+    isEditing = false,
     isOpList = false
   ) {
     let renderingIntent = RenderingIntentFlag.DISPLAY; // Default value.
@@ -2438,6 +2450,12 @@ class WorkerTransport {
         warn(`getRenderingIntent - invalid intent: ${intent}`);
     }
 
+    const annotationStorage =
+      renderingIntent & RenderingIntentFlag.PRINT &&
+      printAnnotationStorage instanceof PrintAnnotationStorage
+        ? printAnnotationStorage
+        : this.annotationStorage;
+
     switch (annotationMode) {
       case AnnotationMode.DISABLE:
         renderingIntent += RenderingIntentFlag.ANNOTATIONS_DISABLE;
@@ -2450,26 +2468,33 @@ class WorkerTransport {
       case AnnotationMode.ENABLE_STORAGE:
         renderingIntent += RenderingIntentFlag.ANNOTATIONS_STORAGE;
 
-        const annotationStorage =
-          renderingIntent & RenderingIntentFlag.PRINT &&
-          printAnnotationStorage instanceof PrintAnnotationStorage
-            ? printAnnotationStorage
-            : this.annotationStorage;
-
         annotationStorageSerializable = annotationStorage.serializable;
         break;
       default:
         warn(`getRenderingIntent - invalid annotationMode: ${annotationMode}`);
     }
 
+    if (isEditing) {
+      renderingIntent += RenderingIntentFlag.IS_EDITING;
+    }
     if (isOpList) {
       renderingIntent += RenderingIntentFlag.OPLIST;
     }
 
+    const { ids: modifiedIds, hash: modifiedIdsHash } =
+      annotationStorage.modifiedIds;
+
+    const cacheKeyBuf = [
+      renderingIntent,
+      annotationStorageSerializable.hash,
+      modifiedIdsHash,
+    ];
+
     return {
       renderingIntent,
-      cacheKey: `${renderingIntent}_${annotationStorageSerializable.hash}`,
+      cacheKey: cacheKeyBuf.join("_"),
       annotationStorageSerializable,
+      modifiedIds,
     };
   }
 
@@ -3448,7 +3473,6 @@ export {
   PDFDocumentProxy,
   PDFPageProxy,
   PDFWorker,
-  PDFWorkerUtil,
   RenderTask,
   version,
 };

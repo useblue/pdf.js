@@ -5,6 +5,7 @@ body:
   - type: textarea
     attributes:
       label: Attach (recommended) or Link to PDF file
+      description: Without this information the issue may be closed without comment
     validations:
       required: true
 
@@ -14,6 +15,7 @@ body:
   - type: input
     attributes:
       label: Web browser and its version
+      description: Please ensure that it's supported, refer to [the FAQ](https://github.com/mozilla/pdf.js/wiki/Frequently-Asked-Questions#faq-support)
     validations:
       required: true
   - type: input

@@ -53,8 +53,6 @@ class HighlightEditor extends AnnotationEditor {
 
   #isFreeHighlight = false;
 
-  #boundKeydown = this.#keydown.bind(this);
-
   #lastPoint = null;
 
   #opacity;
@@ -568,7 +566,7 @@ class HighlightEditor extends AnnotationEditor {
     if (this.#isFreeHighlight) {
       div.classList.add("free");
     } else {
-      this.div.addEventListener("keydown", this.#boundKeydown, {
+      this.div.addEventListener("keydown", this.#keydown.bind(this), {
         signal: this._uiManager._signal,
       });
     }
@@ -671,12 +669,13 @@ class HighlightEditor extends AnnotationEditor {
       return null;
     }
     const [pageWidth, pageHeight] = this.pageDimensions;
+    const [pageX, pageY] = this.pageTranslation;
     const boxes = this.#boxes;
     const quadPoints = new Float32Array(boxes.length * 8);
     let i = 0;
     for (const { x, y, width, height } of boxes) {
-      const sx = x * pageWidth;
-      const sy = (1 - y - height) * pageHeight;
+      const sx = x * pageWidth + pageX;
+      const sy = (1 - y - height) * pageHeight + pageY;
       // The specifications say that the rectangle should start from the bottom
       // left corner and go counter-clockwise.
       // But when opening the file in Adobe Acrobat it appears that this isn't
@@ -701,34 +700,33 @@ class HighlightEditor extends AnnotationEditor {
       width: parentWidth,
       height: parentHeight,
     } = textLayer.getBoundingClientRect();
-    const pointerMove = e => {
-      this.#highlightMove(parent, e);
-    };
-    const signal = parent._signal;
-    const pointerDownOptions = { capture: true, passive: false, signal };
+
+    const ac = new AbortController();
+    const signal = parent.combinedSignal(ac);
+
     const pointerDown = e => {
       // Avoid to have undesired clicks during the drawing.
       e.preventDefault();
       e.stopPropagation();
     };
     const pointerUpCallback = e => {
-      textLayer.removeEventListener("pointermove", pointerMove);
-      window.removeEventListener("blur", pointerUpCallback);
-      window.removeEventListener("pointerup", pointerUpCallback);
-      window.removeEventListener(
-        "pointerdown",
-        pointerDown,
-        pointerDownOptions
-      );
-      window.removeEventListener("contextmenu", noContextMenu);
+      ac.abort();
       this.#endHighlight(parent, e);
     };
     window.addEventListener("blur", pointerUpCallback, { signal });
     window.addEventListener("pointerup", pointerUpCallback, { signal });
-    window.addEventListener("pointerdown", pointerDown, pointerDownOptions);
+    window.addEventListener("pointerdown", pointerDown, {
+      capture: true,
+      passive: false,
+      signal,
+    });
     window.addEventListener("contextmenu", noContextMenu, { signal });
 
-    textLayer.addEventListener("pointermove", pointerMove, { signal });
+    textLayer.addEventListener(
+      "pointermove",
+      this.#highlightMove.bind(this, parent),
+      { signal }
+    );
     this._freeHighlight = new FreeOutliner(
       { x, y },
       [layerX, layerY, parentWidth, parentHeight],

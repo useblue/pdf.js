@@ -12,7 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* globals pdfjsLib, pdfjsViewer */
+/* globals pdfjsLib, pdfjsTestingUtils, pdfjsViewer */
 
 const {
   AnnotationLayer,
@@ -20,12 +20,12 @@ const {
   DrawLayer,
   getDocument,
   GlobalWorkerOptions,
-  Outliner,
   PixelsPerInch,
   shadow,
   TextLayer,
   XfaLayer,
 } = pdfjsLib;
+const { Outliner } = pdfjsTestingUtils;
 const { GenericL10n, parseQueryString, SimpleLinkService } = pdfjsViewer;
 
 const WAITING_TIME = 100; // ms
@@ -610,7 +610,7 @@ class Driver {
 
         if (task.annotationStorage) {
           for (const annotation of Object.values(task.annotationStorage)) {
-            const { bitmapName } = annotation;
+            const { bitmapName, quadPoints } = annotation;
             if (bitmapName) {
               promise = promise.then(async doc => {
                 const response = await fetch(
@@ -642,6 +642,11 @@ class Driver {
 
                 return doc;
               });
+            }
+            if (quadPoints) {
+              // Just to ensure that the quadPoints are always a Float32Array
+              // like IRL (in order to avoid bugs like bug 1907958).
+              annotation.quadPoints = new Float32Array(quadPoints);
             }
           }
         }
@@ -1070,7 +1075,7 @@ class Driver {
       this.output.textContent += message;
     }
 
-    if (message.lastIndexOf("\n") >= 0 && !this.disableScrolling.checked) {
+    if (message.includes("\n") && !this.disableScrolling.checked) {
       // Scroll to the bottom of the page
       this.output.scrollTop = this.output.scrollHeight;
     }

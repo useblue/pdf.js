@@ -135,6 +135,7 @@ function getSelector(id) {
 async function getRect(page, selector) {
   // In Chrome something is wrong when serializing a `DomRect`,
   // so we extract the values and return them ourselves.
+  await page.waitForSelector(selector, { visible: true });
   return page.$eval(selector, el => {
     const { x, y, width, height } = el.getBoundingClientRect();
     return { x, y, width, height };
@@ -172,7 +173,7 @@ async function getSpanRectFromText(page, pageNumber, text) {
   return page.evaluate(
     (number, content) => {
       for (const el of document.querySelectorAll(
-        `.page[data-page-number="${number}"] > .textLayer > span`
+        `.page[data-page-number="${number}"] > .textLayer span:not(:has(> span))`
       )) {
         if (el.textContent === content) {
           const { x, y, width, height } = el.getBoundingClientRect();
@@ -447,8 +448,27 @@ function waitForAnnotationEditorLayer(page) {
   return createPromise(page, resolve => {
     window.PDFViewerApplication.eventBus.on(
       "annotationeditorlayerrendered",
-      resolve
+      resolve,
+      { once: true }
     );
+  });
+}
+
+function waitForAnnotationModeChanged(page) {
+  return createPromise(page, resolve => {
+    window.PDFViewerApplication.eventBus.on(
+      "annotationeditormodechanged",
+      resolve,
+      { once: true }
+    );
+  });
+}
+
+function waitForPageRendered(page) {
+  return createPromise(page, resolve => {
+    window.PDFViewerApplication.eventBus.on("pagerendered", resolve, {
+      once: true,
+    });
   });
 }
 
@@ -489,6 +509,24 @@ async function firstPageOnTop(page) {
 async function hover(page, selector) {
   const rect = await getRect(page, selector);
   await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+}
+
+async function setCaretAt(page, pageNumber, text, position) {
+  await page.evaluate(
+    (pageN, string, pos) => {
+      for (const el of document.querySelectorAll(
+        `.page[data-page-number="${pageN}"] > .textLayer > span`
+      )) {
+        if (el.textContent === string) {
+          window.getSelection().setPosition(el.firstChild, pos);
+          break;
+        }
+      }
+    },
+    pageNumber,
+    text,
+    position
+  );
 }
 
 const modifier = isMac ? "Meta" : "Control";
@@ -693,10 +731,13 @@ export {
   pasteFromClipboard,
   scrollIntoView,
   serializeBitmapDimensions,
+  setCaretAt,
   switchToEditor,
   waitForAnnotationEditorLayer,
+  waitForAnnotationModeChanged,
   waitForEntryInStorage,
   waitForEvent,
+  waitForPageRendered,
   waitForSandboxTrip,
   waitForSelectedEditor,
   waitForSerialized,

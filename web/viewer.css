@@ -46,6 +46,7 @@
   --toolbar-border-color: rgb(184 184 184);
   --toolbar-box-shadow: 0 1px 0 var(--toolbar-border-color);
   --toolbar-border-bottom: none;
+  --toolbar-height: 32px;
   --toolbarSidebar-box-shadow: inset calc(-1px * var(--dir-factor)) 0 0
       rgb(0 0 0 / 0.25),
     0 1px 0 rgb(0 0 0 / 0.15), 0 0 1px rgb(0 0 0 / 0.1);
@@ -119,6 +120,9 @@
   --secondaryToolbarButton-spreadNone-icon: url(images/secondaryToolbarButton-spreadNone.svg);
   --secondaryToolbarButton-spreadOdd-icon: url(images/secondaryToolbarButton-spreadOdd.svg);
   --secondaryToolbarButton-spreadEven-icon: url(images/secondaryToolbarButton-spreadEven.svg);
+  --secondaryToolbarButton-imageAltTextSettings-icon: var(
+    --toolbarButton-editorStamp-icon
+  );
   --secondaryToolbarButton-documentProperties-icon: url(images/secondaryToolbarButton-documentProperties.svg);
   --editorParams-stampAddImage-icon: url(images/toolbarButton-zoomIn.svg);
 }
@@ -270,7 +274,7 @@ body {
 
 #sidebarContainer {
   position: absolute;
-  inset-block: 32px 0;
+  inset-block: var(--toolbar-height) 0;
   inset-inline-start: calc(-1 * var(--sidebar-width));
   width: var(--sidebar-width);
   visibility: hidden;
@@ -297,7 +301,7 @@ body {
 }
 
 #sidebarContent {
-  inset-block: 32px 0;
+  inset-block: var(--toolbar-height) 0;
   inset-inline-start: 0;
   overflow: auto;
   position: absolute;
@@ -308,7 +312,7 @@ body {
 #viewerContainer {
   overflow: auto;
   position: absolute;
-  inset: 32px 0 0;
+  inset: var(--toolbar-height) 0 0;
   outline: none;
 }
 #viewerContainer:not(.pdfPresentationMode) {
@@ -329,7 +333,7 @@ body {
   font: message-box;
 }
 
-:is(.toolbar, .editorParamsToolbar, .findbar, #sidebarContainer)
+:is(.toolbar, .editorParamsToolbar, #sidebarContainer)
   :is(input, button, select),
 .secondaryToolbar :is(input, button, a, select) {
   outline: none;
@@ -342,7 +346,7 @@ body {
 
 #toolbarSidebar {
   width: 100%;
-  height: 32px;
+  height: var(--toolbar-height);
   background-color: var(--sidebar-toolbar-bg-color);
   box-shadow: var(--toolbarSidebar-box-shadow);
   border-bottom: var(--toolbarSidebar-border-bottom);
@@ -358,18 +362,17 @@ body {
 }
 
 #toolbarContainer,
-.findbar,
 .secondaryToolbar,
 .editorParamsToolbar {
   position: relative;
-  height: 32px;
+  height: var(--toolbar-height);
   background-color: var(--toolbar-bg-color);
   box-shadow: var(--toolbar-box-shadow);
   border-bottom: var(--toolbar-border-bottom);
 }
 
 #toolbarViewer {
-  height: 32px;
+  height: var(--toolbar-height);
 }
 
 #loadingBar {
@@ -444,10 +447,9 @@ body {
   transition-duration: 0s;
 }
 
-.findbar,
 .secondaryToolbar,
 .editorParamsToolbar {
-  top: 32px;
+  top: var(--toolbar-height);
   position: absolute;
   z-index: 30000;
   height: auto;
@@ -458,64 +460,6 @@ body {
   line-height: 14px;
   text-align: left;
   cursor: default;
-}
-
-.findbar {
-  inset-inline-start: 64px;
-  min-width: 300px;
-  background-color: var(--toolbar-bg-color);
-}
-.findbar > div {
-  height: 32px;
-}
-.findbar > div#findbarInputContainer {
-  margin-inline-end: 4px;
-}
-.findbar.wrapContainers > div,
-.findbar.wrapContainers > div#findbarMessageContainer > * {
-  clear: both;
-}
-.findbar.wrapContainers > div#findbarMessageContainer {
-  height: auto;
-}
-
-.findbar input[type="checkbox"] {
-  pointer-events: none;
-}
-
-.findbar label {
-  user-select: none;
-}
-
-.findbar label:hover,
-.findbar input:focus-visible + label {
-  color: var(--toggled-btn-color);
-  background-color: var(--button-hover-color);
-}
-
-.findbar .toolbarField[type="checkbox"]:checked + .toolbarLabel {
-  background-color: var(--toggled-btn-bg-color) !important;
-  color: var(--toggled-btn-color);
-}
-
-#findInput {
-  width: 200px;
-
-  /*#if !MOZCENTRAL*/
-  &::-webkit-input-placeholder {
-    color: rgb(191 191 191);
-  }
-  /*#endif*/
-  &::placeholder {
-    font-style: normal;
-  }
-  .loadingInput:has(> &[data-status="pending"])::after {
-    display: block;
-    visibility: visible;
-  }
-  &[data-status="notFound"] {
-    background-color: rgb(255 102 102);
-  }
 }
 
 .secondaryToolbar,
@@ -650,22 +594,6 @@ body {
   margin-inline-end: -9px;
 }
 
-#findResultsCount {
-  background-color: rgb(217 217 217);
-  color: rgb(82 82 82);
-  text-align: center;
-  padding: 4px 5px;
-  margin: 5px;
-}
-
-#findMsg[data-status="notFound"] {
-  font-weight: bold;
-}
-
-:is(#findResultsCount, #findMsg):empty {
-  display: none;
-}
-
 #toolbarViewerMiddle {
   position: absolute;
   left: 50%;
@@ -685,8 +613,7 @@ body {
 #toolbarViewerMiddle > *,
 #toolbarViewerRight > *,
 #toolbarSidebarLeft *,
-#toolbarSidebarRight *,
-.findbar * {
+#toolbarSidebarRight * {
   position: relative;
   float: var(--inline-start);
 }
@@ -891,14 +818,6 @@ body {
   transform: scaleX(var(--dir-factor));
 }
 
-#findPrevious::before {
-  mask-image: var(--findbarButton-previous-icon);
-}
-
-#findNext::before {
-  mask-image: var(--findbarButton-next-icon);
-}
-
 #previous::before {
   mask-image: var(--toolbarButton-pageUp-icon);
 }
@@ -1074,6 +993,10 @@ a:is(.toolbarButton, .secondaryToolbarButton)[href="#"] {
 
 #documentProperties::before {
   mask-image: var(--secondaryToolbarButton-documentProperties-icon);
+}
+
+#imageAltTextSettings::before {
+  mask-image: var(--secondaryToolbarButton-imageAltTextSettings-icon);
 }
 
 .verticalToolbarSeparator {
@@ -1422,6 +1345,132 @@ dialog :link {
   z-index: 50000; /* should be higher than anything else in PDF.js! */
 }
 
+#findbar {
+  background-color: var(--toolbar-bg-color);
+  cursor: default;
+  font: message-box;
+  font-size: 12px;
+  height: auto;
+  inset-inline-start: 64px;
+  line-height: 14px;
+  margin: 4px 2px;
+  min-width: 300px;
+  padding: 0 4px;
+  position: absolute;
+  text-align: left;
+  top: var(--toolbar-height);
+  z-index: 30000;
+
+  * {
+    float: var(--inline-start);
+    position: relative;
+  }
+
+  > div {
+    height: var(--toolbar-height);
+  }
+
+  :is(button, input) {
+    font: message-box;
+    outline: none;
+  }
+
+  input {
+    &[type="checkbox"] {
+      pointer-events: none;
+
+      &:checked + .toolbarLabel {
+        background-color: var(--toggled-btn-bg-color) !important;
+        color: var(--toggled-btn-color);
+      }
+    }
+  }
+
+  label {
+    user-select: none;
+  }
+
+  :is(label:hover, input:focus-visible + label) {
+    background-color: var(--button-hover-color);
+    color: var(--toggled-btn-color);
+  }
+
+  #findbarInputContainer {
+    margin-inline-end: 4px;
+
+    #findInput {
+      width: 200px;
+
+      /*#if !MOZCENTRAL*/
+      &::-webkit-input-placeholder {
+        color: rgb(191 191 191);
+      }
+      /*#endif*/
+
+      &::placeholder {
+        font-style: normal;
+      }
+
+      .loadingInput:has(> &[data-status="pending"])::after {
+        display: block;
+        visibility: visible;
+      }
+
+      &[data-status="notFound"] {
+        background-color: rgb(255 102 102);
+      }
+    }
+
+    #findPrevious::before {
+      mask-image: var(--findbarButton-previous-icon);
+    }
+
+    #findNext::before {
+      mask-image: var(--findbarButton-next-icon);
+    }
+  }
+
+  #findbarMessageContainer {
+    #findResultsCount {
+      background-color: rgb(217 217 217);
+      color: rgb(82 82 82);
+      margin: 5px;
+      padding: 4px 5px;
+      text-align: center;
+    }
+
+    #findMsg {
+      &[data-status="notFound"] {
+        font-weight: bold;
+      }
+    }
+
+    *:empty {
+      display: none;
+    }
+  }
+
+  &.wrapContainers {
+    > div {
+      clear: both;
+    }
+
+    > #findbarMessageContainer {
+      height: auto;
+
+      > * {
+        clear: both;
+      }
+    }
+  }
+
+  @media all and (max-width: 690px) {
+    & {
+      inset-inline-start: 34px;
+    }
+  }
+}
+
 @page {
   margin: 0;
 }
@@ -1522,9 +1571,6 @@ dialog :link {
   }
   .toolbarButtonSpacer {
     width: 0;
-  }
-  .findbar {
-    inset-inline-start: 34px;
   }
 }
 
